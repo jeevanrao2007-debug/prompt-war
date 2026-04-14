@@ -8,6 +8,8 @@ import {
   isFirebaseConfigured,
   listenToAdminAlert,
   listenToCrowdData,
+  listenToRecentAlerts,
+  saveAlertToFirestore,
   writeAdminAlert,
 } from './services/firebaseService'
 import { isAdminUser, listenToAuthState, login, logout, setupAuthPersistence, signup } from './services/authService'
@@ -17,7 +19,6 @@ import {
   getNotificationPermission,
   requestNotificationPermission,
   sendCrowdNotification,
-  zoneMessages,
 } from './services/notificationService'
 
 const VITE_API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
@@ -38,15 +39,69 @@ const normalizeCrowd = (value) => {
 }
 
 const getCrowdTone = (value) => {
-  if (value > CROWD_ALERT_THRESHOLD + 15) {
+  if (value > 75) {
     return 'critical'
   }
 
-  if (value > CROWD_ALERT_THRESHOLD) {
+  if (value > 50) {
     return 'warning'
   }
 
   return 'healthy'
+}
+
+const getCrowdLevel = (value) => {
+  if (value > 75) {
+    return 'High'
+  }
+
+  if (value > 50) {
+    return 'Medium'
+  }
+
+  return 'Low'
+}
+
+const getRecommendationZone = (zoneKey) => {
+  if (zoneKey === 'foodCourt') {
+    return 'Gate A'
+  }
+
+  if (zoneKey === 'gateA') {
+    return 'Seating'
+  }
+
+  return 'Food Court'
+}
+
+const buildRecommendationMessage = (zoneKey) => {
+  const zoneLabel = crowdZones.find((zone) => zone.key === zoneKey)?.label ?? zoneKey
+  const recommendationZone = getRecommendationZone(zoneKey)
+  return `${zoneLabel} crowded -> redirect to ${recommendationZone}`
+}
+
+const normalizeAlertLevel = (level, value) => {
+  if (level === 'critical') {
+    return 'High'
+  }
+
+  if (level === 'warning') {
+    return 'Medium'
+  }
+
+  if (level === 'healthy') {
+    return 'Low'
+  }
+
+  if (level === 'High' || level === 'Medium' || level === 'Low') {
+    return level
+  }
+
+  if (typeof value === 'number') {
+    return getCrowdLevel(value)
+  }
+
+  return 'High'
 }
 
 // Diagnostic logging
@@ -125,15 +180,24 @@ function App() {
 
   useEffect(() => {
     if (!user) {
+      setAlerts([])
+      latestAdminAlertIdRef.current = null
       setCrowdData({})
       return undefined
     }
+
+    const unsubscribeRecentAlerts = listenToRecentAlerts((recentAlerts) => {
+      setAlerts(recentAlerts)
+    })
 
     const unsubscribe = listenToCrowdData((data) => {
       setCrowdData(data)
     })
 
-    return () => unsubscribe()
+    return () => {
+      unsubscribeRecentAlerts()
+      unsubscribe()
+    }
   }, [user])
 
   useEffect(() => {
@@ -157,7 +221,7 @@ function App() {
 
       latestAdminAlertIdRef.current = alert.id
       sendCrowdNotification(alert.message)
-      setAlerts((prev) => [{ zone: 'admin', message: alert.message, value: 'Admin' }, ...prev].slice(0, 5))
+      setAlerts((prev) => [{ zone: 'admin', message: alert.message, level: 'High' }, ...prev].slice(0, 5))
     })
 
     return () => unsubscribe()
@@ -179,10 +243,12 @@ function App() {
         previousValue <= CROWD_ALERT_THRESHOLD && currentValue > CROWD_ALERT_THRESHOLD
 
       if (crossedThreshold) {
-        const message = zoneMessages[zoneKey]
+        const level = getCrowdLevel(currentValue)
+        const message = buildRecommendationMessage(zoneKey)
         sendCrowdNotification(message)
 
-        setAlerts((prev) => [{ zone: zoneKey, message, value: currentValue }, ...prev].slice(0, 5))
+        setAlerts((prev) => [{ zone: zoneKey, message, value: currentValue, level }, ...prev].slice(0, 5))
+        saveAlertToFirestore(message, level).catch(() => {})
       }
     })
 
@@ -217,7 +283,9 @@ function App() {
     setAlertStatus('')
 
     try {
-      await writeAdminAlert('Gate A is crowded, use another entry')
+      const message = 'Gate A is crowded, use another entry'
+      await writeAdminAlert(message)
+      await saveAlertToFirestore(message, 'High')
       setAlertStatus('Alert sent successfully.')
     } catch (sendError) {
       setAlertStatus('Failed to send alert.')
@@ -249,21 +317,21 @@ function App() {
 
   if (authLoading) {
     return (
-      <div className="container auth-shell">
-        <div className="card loading-card">
+      <main className="container auth-shell" aria-label="Loading session">
+        <div className="card loading-card" role="status" aria-live="polite">
           <p>Loading session...</p>
         </div>
-      </div>
+      </main>
     )
   }
 
   if (!user) {
     return (
-      <div className="container auth-shell">
-        <div className="app-header">
+      <main className="container auth-shell">
+        <header className="app-header">
           <h1>Prompt Wars</h1>
           <p className="app-subtitle">Realtime crowd intelligence for safer stadium navigation.</p>
-        </div>
+        </header>
         <AuthForm
           mode={authMode}
           onSubmit={handleAuthSubmit}
@@ -271,32 +339,38 @@ function App() {
           error={authError}
           onModeChange={setAuthMode}
         />
-      </div>
+      </main>
     )
   }
 
   return (
-    <div className="container">
-      <div className="app-header">
+    <main className="container" role="main" aria-label="Prompt Wars dashboard">
+      <header className="app-header">
         <h1>Prompt Wars</h1>
         <p className="app-subtitle">Realtime dashboard for crowd flow, safety alerts, and live wayfinding.</p>
-      </div>
+      </header>
 
-      <div className="top-nav">
-        <div className="nav-links">
-          <Link className="nav-link" to="/">Overview</Link>
-          {isAdmin && <Link className="nav-link" to="/admin">Admin</Link>}
+      <nav className="top-nav" aria-label="Main navigation">
+        <div className="nav-links" role="list">
+          <Link className="nav-link" to="/" role="listitem">Overview</Link>
+          {isAdmin && <Link className="nav-link" to="/admin" role="listitem">Admin</Link>}
         </div>
-        <span className="user-chip">{user.email}</span>
-        <button className="ghost-btn" onClick={handleLogout}>Logout</button>
-      </div>
+        <span className="user-chip" aria-label={`Signed in as ${user.email}`}>{user.email}</span>
+        <button
+          className="ghost-btn"
+          onClick={handleLogout}
+          aria-label="Logout of your account"
+        >
+          Logout
+        </button>
+      </nav>
 
       <Routes>
         <Route
           path="/"
           element={
-            <div className="dashboard-grid">
-              <section className="card status-card">
+            <section className="dashboard-grid" role="region" aria-label="Overview dashboard">
+              <section className="card status-card" role="region" aria-label="Server status">
                 <div className="card-head">
                   <h2>Server Status</h2>
                   <span className={`status-pill ${error ? 'error' : 'success'}`}>
@@ -310,7 +384,7 @@ function App() {
                 <p className="meta-line">Backend: {VITE_API_BASE_URL}/api/health</p>
               </section>
 
-              <section className="card crowd-card">
+              <section className="card crowd-card" role="region" aria-label="Crowd data">
                 <div className="card-head">
                   <h2>Crowd Data</h2>
                   <span className="status-pill neutral">Realtime</span>
@@ -336,40 +410,67 @@ function App() {
                     )
                   })}
                 </div>
-                <p className="meta-line">Notification Permission: {notificationPermission}</p>
+                <p className="meta-line" aria-live="polite" aria-atomic="true">
+                  Notification Permission: {notificationPermission}
+                </p>
                 <div className="card-actions">
                   {notificationPermission !== 'granted' && notificationPermission !== 'unsupported' && (
-                    <button className="notify-btn" onClick={handleEnableNotifications}>
+                    <button
+                      className="notify-btn"
+                      onClick={handleEnableNotifications}
+                      aria-label="Enable browser notifications for crowd alerts"
+                    >
                       Enable Notifications
                     </button>
                   )}
                   {!isFirebaseConfigured && (
-                    <p className="error-text">Firebase env vars are missing.</p>
+                    <p className="error-text" role="alert">Firebase env vars are missing.</p>
                   )}
                 </div>
               </section>
 
-              <section className="card alerts-card">
+              <section className="card alerts-card" role="region" aria-label="Crowd alerts">
                 <div className="card-head">
                   <h2>Alerts</h2>
                   <span className="status-pill neutral">Last 5</span>
                 </div>
-                <div className="alerts-list">
+                <p style={{ fontSize: '12px', opacity: 0.7 }}>
+                  Smart system dynamically redirects users based on crowd density
+                </p>
+                <div className="alerts-list" role="list" aria-label="Recent crowd alerts" aria-live="polite" aria-relevant="additions">
                   {alerts.length === 0 && <p className="muted-text">No crowd alerts yet.</p>}
-                  {alerts.map((alert, index) => (
-                    <div
-                      key={`${alert.zone}-${index}`}
-                      className={`alert-item ${typeof alert.value === 'number' && alert.value > CROWD_ALERT_THRESHOLD ? 'critical' : 'warning'}`}
-                    >
-                      <span className="alert-dot" />
-                      <span>{alert.message}</span>
-                      <span className="alert-value">{alert.value}</span>
-                    </div>
-                  ))}
+                  {alerts.map((alert, index) => {
+                    const level = normalizeAlertLevel(alert.level, alert.value)
+
+                    return (
+                      <div
+                        key={alert.id ?? `${alert.zone}-${index}`}
+                        className={`alert-item ${
+                          level === 'High'
+                            ? 'critical'
+                            : level === 'Medium'
+                            ? 'warning'
+                            : 'healthy'
+                        }`}
+                        role="listitem"
+                        aria-label={`${alert.message} — severity: ${level}`}
+                      >
+                        <span className="alert-dot" aria-hidden="true" />
+                        <div>
+                          <strong>{alert.message.split('->')[0]}</strong>
+                          <br />
+                          <small style={{ opacity: 0.7 }}>
+                            Recommendation: {alert.message.split('->')[1]}
+                          </small>
+                        </div>
+                        <span className="alert-value" aria-hidden="true">{level}</span>
+                      </div>
+                    )
+                  })}
                 </div>
               </section>
 
-              <section className="card map-section">
+              <section className="card map-section" role="region" aria-label="Live stadium map">
                 <div className="card-head">
                   <h2>Stadium Map</h2>
                   <span className="status-pill neutral">Live Route</span>
@@ -378,7 +479,7 @@ function App() {
                   <MapLoader crowdData={crowdData} />
                 </div>
               </section>
-            </div>
+            </section>
           }
         />
         <Route
@@ -395,7 +496,7 @@ function App() {
           }
         />
       </Routes>
-    </div>
+    </main>
   )
 }
 

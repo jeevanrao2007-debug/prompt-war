@@ -8,7 +8,7 @@ export default function MapLoader({ crowdData }) {
 
   if (!apiKey) {
     console.error('Google Maps API key is missing (VITE_GOOGLE_MAPS_API_KEY not set)')
-    return <div className="map-feedback map-error">Map unavailable: API key not configured.</div>
+    return <div className="map-feedback map-error" role="alert">Map unavailable: API key not configured.</div>
   }
 
   const { isLoaded, loadError } = useJsApiLoader({
@@ -18,7 +18,7 @@ export default function MapLoader({ crowdData }) {
 
   if (loadError) {
     console.error('Google Maps failed to load:', loadError)
-    return <div className="map-feedback map-error">Map failed to load. Please refresh.</div>
+    return <div className="map-feedback map-error" role="alert">Map failed to load. Please refresh.</div>
   }
 
   return <Map isLoaded={isLoaded} loadError={loadError} crowdData={crowdData} />

@@ -86,45 +86,59 @@ export default function Map({ isLoaded, loadError, crowdData }) {
     setActiveMarker(markerId)
   }, [])
 
-  if (loadError) return <div className="map-feedback map-error">Map unavailable right now.</div>
-  if (!isLoaded) return <div className="map-skeleton">Loading live map...</div>
+  if (loadError) return <div className="map-feedback map-error" role="alert">Map unavailable right now.</div>
+  if (!isLoaded) return <div className="map-skeleton" role="status" aria-label="Loading map">Loading live map...</div>
 
   return (
-    <GoogleMap
-      mapContainerStyle={mapContainerStyle}
-      center={stadiumCenter}
-      options={mapOptions}
-    >
-      {polylinePath.length > 1 && (
-        <PolylineF path={polylinePath} options={polylineOptions} />
-      )}
-      {markers.map((marker) => (
-        <div key={marker.id}>
-          <MarkerF
-            position={marker.position}
-            title={marker.title}
-            label={{
-              text: formatWaitTime(waitByMarkerKey[marker.key] ?? 0),
-              color: '#0f172a',
-              fontSize: '12px',
-              fontWeight: '600',
-            }}
+    <div role="region" aria-label="Stadium map with live crowd data">
+      <section className="sr-only" role="region" aria-label="Map marker controls">
+        {markers.map((marker) => (
+          <button
+            key={`control-${marker.id}`}
+            type="button"
             onClick={() => handleMarkerClick(marker.id)}
-          />
-          {activeMarker === marker.id && (
-            <InfoWindowF
+            aria-label={`Show map details for ${marker.title}`}
+          >
+            {marker.title}
+          </button>
+        ))}
+      </section>
+      <GoogleMap
+        mapContainerStyle={mapContainerStyle}
+        center={stadiumCenter}
+        options={mapOptions}
+      >
+        {polylinePath.length > 1 && (
+          <PolylineF path={polylinePath} options={polylineOptions} />
+        )}
+        {markers.map((marker) => (
+          <div key={marker.id}>
+            <MarkerF
               position={marker.position}
-              onCloseClick={() => setActiveMarker(null)}
-            >
-              <div style={{ color: '#000' }}>
-                <strong>{marker.title}</strong>
-                <p>{marker.description}</p>
-                <p>Wait: {formatWaitTime(waitByMarkerKey[marker.key] ?? 0)}</p>
-              </div>
-            </InfoWindowF>
-          )}
-        </div>
-      ))}
-    </GoogleMap>
+              title={`${marker.title} — Wait: ${formatWaitTime(waitByMarkerKey[marker.key] ?? 0)}`}
+              label={{
+                text: formatWaitTime(waitByMarkerKey[marker.key] ?? 0),
+                color: '#0f172a',
+                fontSize: '12px',
+                fontWeight: '600',
+              }}
+              onClick={() => handleMarkerClick(marker.id)}
+            />
+            {activeMarker === marker.id && (
+              <InfoWindowF
+                position={marker.position}
+                onCloseClick={() => setActiveMarker(null)}
+              >
+                <div style={{ color: '#000' }}>
+                  <strong>{marker.title}</strong>
+                  <p>{marker.description}</p>
+                  <p>Wait: {formatWaitTime(waitByMarkerKey[marker.key] ?? 0)}</p>
+                </div>
+              </InfoWindowF>
+            )}
+          </div>
+        ))}
+      </GoogleMap>
+    </div>
   )
 }

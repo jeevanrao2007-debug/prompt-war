@@ -1,6 +1,15 @@
 import { getApp, getApps, initializeApp } from 'firebase/app'
 import { getAuth } from 'firebase/auth'
-import { getFirestore } from 'firebase/firestore'
+import {
+  addDoc,
+  collection,
+  getFirestore,
+  limit,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
+} from 'firebase/firestore'
 import { getDatabase, onValue, ref, set } from 'firebase/database'
 
 const firebaseConfig = {
@@ -84,5 +93,42 @@ export const listenToAdminAlert = (callback) => {
   const alertRef = ref(realtimeDb, 'alerts/latest')
   return onValue(alertRef, (snapshot) => {
     callback(snapshot.val())
+  })
+}
+
+export const saveAlertToFirestore = (message, level) => {
+  if (!firestore) {
+    return Promise.reject(new Error('Firebase is not configured'))
+  }
+
+  const alertsRef = collection(firestore, 'alerts')
+  return addDoc(alertsRef, {
+    message,
+    level,
+    timestamp: serverTimestamp(),
+  })
+}
+
+export const listenToRecentAlerts = (callback) => {
+  if (!firestore) {
+    callback([])
+    return () => {}
+  }
+
+  const alertsRef = collection(firestore, 'alerts')
+  const recentAlertsQuery = query(alertsRef, orderBy('timestamp', 'desc'), limit(5))
+
+  return onSnapshot(recentAlertsQuery, (snapshot) => {
+    const data = snapshot.docs.map((doc) => {
+      const payload = doc.data()
+      return {
+        id: doc.id,
+        message: payload.message,
+        level: payload.level,
+        timestamp: payload.timestamp,
+      }
+    })
+
+    callback(data)
   })
 }
