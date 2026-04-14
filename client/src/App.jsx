@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+﻿import { useEffect, useRef, useState } from 'react'
 import { Link, Route, Routes } from 'react-router-dom'
 import AdminDashboard from './components/AdminDashboard'
 import AuthForm from './components/AuthForm'
 import MapLoader from './components/MapLoader'
 import ProtectedAdminRoute from './components/ProtectedAdminRoute'
+import { generateAIInsight } from './services/aiService'
 import {
   isFirebaseConfigured,
   listenToAdminAlert,
@@ -105,10 +106,10 @@ const normalizeAlertLevel = (level, value) => {
 }
 
 // Diagnostic logging
-console.log('🔍 Environment Check:')
+console.log('Environment Check:')
 console.log('  API Base URL:', VITE_API_BASE_URL)
-console.log('  Google Maps API Key:', import.meta.env.VITE_GOOGLE_MAPS_API_KEY ? '✓ Set' : '❌ Missing')
-console.log('  Firebase Project ID:', import.meta.env.VITE_FIREBASE_PROJECT_ID ? '✓ Set' : '❌ Missing')
+console.log('  Google Maps API Key:', import.meta.env.VITE_GOOGLE_MAPS_API_KEY ? 'Set' : 'Missing')
+console.log('  Firebase Project ID:', import.meta.env.VITE_FIREBASE_PROJECT_ID ? 'Set' : 'Missing')
 
 function App() {
   const [serverStatus, setServerStatus] = useState('Checking...')
@@ -124,6 +125,7 @@ function App() {
   const [authMode, setAuthMode] = useState('login')
   const [authError, setAuthError] = useState('')
   const [authSubmitting, setAuthSubmitting] = useState(false)
+  const [aiInsight, setAiInsight] = useState('')
 
   const previousCrowdRef = useRef({})
   const latestAdminAlertIdRef = useRef(null)
@@ -257,6 +259,19 @@ function App() {
       foodCourt: Number(crowdData.foodCourt ?? 0),
       seating: Number(crowdData.seating ?? 0),
     }
+  }, [crowdData, user])
+  useEffect(() => {
+    if (!user || !crowdData || Object.keys(crowdData).length === 0) {
+      return
+    }
+
+    const timeout = setTimeout(() => {
+      generateAIInsight(crowdData)
+        .then(setAiInsight)
+        .catch(() => {})
+    }, 1500)
+
+    return () => clearTimeout(timeout)
   }, [crowdData, user])
 
   useEffect(() => {
@@ -453,7 +468,7 @@ function App() {
                             : 'healthy'
                         }`}
                         role="listitem"
-                        aria-label={`${alert.message} — severity: ${level}`}
+                        aria-label={`${alert.message} - severity: ${level}`}
                       >
                         <span className="alert-dot" aria-hidden="true" />
                         <div>
@@ -469,6 +484,27 @@ function App() {
                   })}
                 </div>
               </section>
+              <p style={{ fontSize: '12px', opacity: 0.6 }}>
+                AI-powered crowd analysis using Google Gemini
+              </p>
+              <div className="ai-box">
+                <h3>AI Insight</h3>
+                <p className="ai-insight-text">
+                  {aiInsight ? (
+                    <>
+                      ⚡ <strong>Insight:</strong> {aiInsight}
+                    </>
+                  ) : (
+                    <span style={{ opacity: 0.5 }}>
+                      Analyzing crowd patterns...
+                    </span>
+                  )}
+                </p>
+                <small style={{ opacity: 0.6 }}>
+                  Powered by Google Gemini AI
+                </small>
+              </div>
+
 
               <section className="card map-section" role="region" aria-label="Live stadium map">
                 <div className="card-head">
@@ -501,3 +537,12 @@ function App() {
 }
 
 export default App
+
+
+
+
+
+
+
+
+

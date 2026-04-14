@@ -582,3 +582,11 @@ h2 {
   outline: 2px solid var(--accent-blue);
   outline-offset: 2px;
 }
+
+.ai-box {
+margin-top: 20px;
+padding: 12px;
+border-radius: 10px;
+background: rgba(255,255,255,0.05);
+}
+
